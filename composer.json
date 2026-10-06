@@ -4,6 +4,7 @@
     "require": {
         "php": "^8.0",
         "ext-curl": "*",
-        "ext-json": "*"
+        "ext-json": "*",
+        "aws/aws-sdk-php": "^3.300"
     }
 }
