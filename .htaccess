@@ -1,0 +1,10 @@
+RewriteEngine On
+
+# Redireciona /nota/OS-0043-a7f3b9 para index.php
+RewriteRule ^nota/(.+)$ index.php [L,QSA]
+
+# Redireciona /upload para upload.php
+RewriteRule ^upload$ upload.php [L,QSA]
+
+# Redireciona /ping para ping.php
+RewriteRule ^ping$ ping.php [L,QSA]
