@@ -1,6 +1,6 @@
 {
     "name": "visioncar/backend",
-    "description": "Backend VisionCar — Landing page de OS",
+    "description": "Backend VisionCar - Landing page de OS",
     "require": {
         "php": "^8.0",
         "ext-curl": "*",
