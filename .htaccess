@@ -1,22 +1,9 @@
 RewriteEngine On
 
-# ═══════════════════════════════════════════════════════════════
-# Rota /ping → ping.php
-# ═══════════════════════════════════════════════════════════════
 RewriteRule ^ping$ ping.php [L,QSA]
-
-# ═══════════════════════════════════════════════════════════════
-# Rota /upload → upload.php
-# ═══════════════════════════════════════════════════════════════
 RewriteRule ^upload$ upload.php [L,QSA]
-
-# ═══════════════════════════════════════════════════════════════
-# Rota /nota/OS-0043-token → index.php
-# ═══════════════════════════════════════════════════════════════
+RewriteRule ^upload-pdf$ upload_pdf.php [L,QSA]
 RewriteRule ^nota/(.+)$ index.php [L,QSA]
 
-# ═══════════════════════════════════════════════════════════════
-# Não reescreve arquivos que existem (CSS, JS, imagens)
-# ═══════════════════════════════════════════════════════════════
 RewriteCond %{REQUEST_FILENAME} !-f
 RewriteCond %{REQUEST_FILENAME} !-d
