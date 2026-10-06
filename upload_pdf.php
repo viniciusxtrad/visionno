@@ -4,6 +4,8 @@
 // POST /upload-pdf
 // ═══════════════════════════════════════════════════════════════
 
+error_reporting(0);
+ini_set('display_errors', 0);
 header('Content-Type: application/json');
 
 $BLOB_ENDPOINT   = getenv('UPSTASH_BLOB_ENDPOINT')   ?: 'https://bf69fa0872bd.blob.upstash.io';
@@ -38,75 +40,69 @@ $total    = $_POST['total']    ?? 'R$ 0,00';
 $pdfTmp = $_FILES['pdf']['tmp_name'];
 $pdfNome = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $_FILES['pdf']['name']);
 
-require 'vendor/autoload.php';
+// ─── Faz upload pro Upstash Blob (S3) via HTTP PUT ───
+$key = 'notas/' . $pdfNome;
+$url = $BLOB_ENDPOINT . '/' . $BLOB_BUCKET . '/' . $key;
 
-use Aws\S3\S3Client;
-use Aws\Exception\AwsException;
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_PUT, true);
+curl_setopt($ch, CURLOPT_INFILE, fopen($pdfTmp, 'rb'));
+curl_setopt($ch, CURLOPT_INFILESIZE, filesize($pdfTmp));
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $BLOB_ACCESS_KEY,
+    'Content-Type: application/pdf',
+]);
+curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+$response = curl_exec($ch);
+$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
 
-try {
-    $s3 = new S3Client([
-        'version' => 'latest',
-        'region'  => $BLOB_REGION,
-        'endpoint' => $BLOB_ENDPOINT,
-        'use_path_style_endpoint' => true,
-        'credentials' => [
-            'key'    => $BLOB_ACCESS_KEY,
-            'secret' => $BLOB_SECRET_KEY,
-        ],
-    ]);
-
-    $key = 'notas/' . $pdfNome;
-
-    $result = $s3->putObject([
-        'Bucket' => $BLOB_BUCKET,
-        'Key'    => $key,
-        'Body'   => fopen($pdfTmp, 'rb'),
-        'ContentType' => 'application/pdf',
-        'ACL'    => 'public-read',
-    ]);
-
-    $pdfUrl = $BLOB_ENDPOINT . '/' . $BLOB_BUCKET . '/' . $key;
-
-    $token = substr(bin2hex(random_bytes(4)), 0, 6);
-
-    $nota = json_encode([
-        'os'        => $os,
-        'cliente'   => $cliente,
-        'telefone'  => $telefone,
-        'veiculo'   => $veiculo,
-        'placa'     => $placa,
-        'mecanico'  => $mecanico,
-        'data'      => $data,
-        'total'     => $total,
-        'status'    => 'Concluída',
-        'jpg_url'   => $pdfUrl,
-        'pdf_url'   => $pdfUrl,
-        'whatsapp'  => '5544997022672',
-        'criado_em' => date('Y-m-d H:i:s'),
-    ], JSON_UNESCAPED_UNICODE);
-
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $REDIS_URL . '/set/' . urlencode($token) . '?EX=31536000');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $nota);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Authorization: Bearer ' . $REDIS_TOKEN,
-        'Content-Type: text/plain'
-    ]);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_exec($ch);
-    curl_close($ch);
-
-    $link = 'https://' . $_SERVER['HTTP_HOST'] . '/nota/' . $os . '-' . $token;
-
-    echo json_encode([
-        'sucesso' => true,
-        'link'    => $link,
-        'pdf_url' => $pdfUrl,
-    ], JSON_UNESCAPED_UNICODE);
-
-} catch (AwsException $e) {
+if ($httpCode < 200 || $httpCode >= 300) {
     http_response_code(500);
-    echo json_encode(['erro' => 'Erro no upload: ' . $e->getMessage()]);
+    echo json_encode(['erro' => 'Erro no upload pro Blob: HTTP ' . $httpCode]);
+    exit;
 }
+
+$pdfUrl = $url;
+
+// ─── Salva no Redis ───
+$token = substr(bin2hex(random_bytes(4)), 0, 6);
+
+$nota = json_encode([
+    'os'        => $os,
+    'cliente'   => $cliente,
+    'telefone'  => $telefone,
+    'veiculo'   => $veiculo,
+    'placa'     => $placa,
+    'mecanico'  => $mecanico,
+    'data'      => $data,
+    'total'     => $total,
+    'status'    => 'Concluída',
+    'jpg_url'   => $pdfUrl,
+    'pdf_url'   => $pdfUrl,
+    'whatsapp'  => '5544997022672',
+    'criado_em' => date('Y-m-d H:i:s'),
+], JSON_UNESCAPED_UNICODE);
+
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $REDIS_URL . '/set/' . urlencode($token) . '?EX=31536000');
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+curl_setopt($ch, CURLOPT_POST, true);
+curl_setopt($ch, CURLOPT_POSTFIELDS, $nota);
+curl_setopt($ch, CURLOPT_HTTPHEADER, [
+    'Authorization: Bearer ' . $REDIS_TOKEN,
+    'Content-Type: text/plain'
+]);
+curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+curl_exec($ch);
+curl_close($ch);
+
+$link = 'https://' . $_SERVER['HTTP_HOST'] . '/nota/' . $os . '-' . $token;
+
+echo json_encode([
+    'sucesso' => true,
+    'link'    => $link,
+    'pdf_url' => $pdfUrl,
+], JSON_UNESCAPED_UNICODE);
