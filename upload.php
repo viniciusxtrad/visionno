@@ -1,9 +1,11 @@
 <?php
 // ═══════════════════════════════════════════════════════════════
-// VisionCar — Recebe upload de metadados (versão antiga)
+// VisionCar — Recebe upload de metadados
 // POST /upload
 // ═══════════════════════════════════════════════════════════════
 
+error_reporting(0);
+ini_set('display_errors', 0);
 header('Content-Type: application/json');
 
 $REDIS_URL   = getenv('UPSTASH_REDIS_REST_URL')   ?: 'https://eminent-blowfish-205260.upstash.io';
