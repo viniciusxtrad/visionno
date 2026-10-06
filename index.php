@@ -4,13 +4,17 @@
 // URL: /nota/OS-0043-a7f3b9
 // ═══════════════════════════════════════════════════════════════
 
+error_reporting(0);
+ini_set('display_errors', 0);
+header('Content-Type: text/html; charset=utf-8');
+
 $REDIS_URL   = getenv('UPSTASH_REDIS_REST_URL')   ?: 'https://eminent-blowfish-205260.upstash.io';
 $REDIS_TOKEN = getenv('UPSTASH_REDIS_REST_TOKEN') ?: 'gQAAAAAAAyHMAAIgcDI5N2ZjYTc0YzljZWE0ZDc2YWE5M2M1YTdhNjUxODRiYw';
 
-// Página inicial (raiz)
 $request_uri = $_SERVER['REQUEST_URI'] ?? '/';
+
+// ─── Página inicial (raiz) ───
 if ($request_uri === '/' || $request_uri === '') {
-    header('Content-Type: text/html; charset=utf-8');
     echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>VisionCar</title><style>body{font-family:-apple-system,sans-serif;background:#0A0E14;color:#E6E6E6;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}.card{max-width:400px;background:#161B22;border:1px solid #1F2630;border-radius:20px;padding:40px 30px}.logo{width:80px;height:80px;border-radius:50%;background:#D4A24C;color:#0A0E14;font-size:36px;font-weight:900;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}h1{color:#D4A24C;font-size:22px;margin-bottom:10px}p{color:#8B949E;font-size:14px;line-height:1.6}</style></head><body><div class="card"><div class="logo">V</div><h1>VISION CAR</h1><p>Sistema de Notas para Oficinas</p><p style="margin-top:20px;font-size:12px">Acesse o link completo da nota para visualizar</p></div></body></html>';
     exit;
 }
