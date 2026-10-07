@@ -7,16 +7,19 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ═══════════════════════════════════════════════════════════════
-// Configurações
+// Configurações (via variáveis de ambiente do Render)
 // ═══════════════════════════════════════════════════════════════
 const BLOB_TOKEN = process.env.UPSTASH_BLOB_TOKEN;
 const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL;
 const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
+if (!BLOB_TOKEN) console.error("⚠️  UPSTASH_BLOB_TOKEN não configurado!");
+if (!REDIS_URL || !REDIS_TOKEN) console.error("⚠️  Redis não configurado!");
+
 const bucket = new Bucket({ token: BLOB_TOKEN });
 const redis = new Redis({ url: REDIS_URL, token: REDIS_TOKEN });
 
-// Multer — recebe o PDF na memória
+// Multer — recebe PDF + JPG na memória
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ═══════════════════════════════════════════════════════════════
@@ -64,12 +67,27 @@ app.get("/ping", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// Upload do PDF
+// Upload do PDF + JPG
 // ═══════════════════════════════════════════════════════════════
-app.post("/upload-pdf", upload.single("pdf"), async (req, res) => {
+app.post("/upload-pdf", upload.fields([
+    { name: "pdf", maxCount: 1 },
+    { name: "jpg", maxCount: 1 }
+]), async (req, res) => {
     try {
-        if (!req.file) {
+        console.log("📥 Recebendo upload...");
+
+        const pdfFile = req.files && req.files["pdf"] ? req.files["pdf"][0] : null;
+        const jpgFile = req.files && req.files["jpg"] ? req.files["jpg"][0] : null;
+
+        if (!pdfFile) {
             return res.status(400).json({ erro: "PDF não enviado" });
+        }
+
+        console.log("📄 PDF:", pdfFile.originalname, "Tamanho:", pdfFile.size, "bytes");
+        if (jpgFile) {
+            console.log("🖼️  JPG:", jpgFile.originalname, "Tamanho:", jpgFile.size, "bytes");
+        } else {
+            console.log("⚠️  JPG não enviado!");
         }
 
         const os = req.body.os || "OS-0000";
@@ -81,12 +99,29 @@ app.post("/upload-pdf", upload.single("pdf"), async (req, res) => {
         const data = req.body.data || new Date().toLocaleString("pt-BR");
         const total = req.body.total || "R$ 0,00";
 
-        const pdfNome = req.file.originalname.replace(/[^A-Za-z0-9_\-\.]/g, "_");
-        const key = `notas/${pdfNome}`;
+        // Sanitiza nomes
+        const pdfNome = pdfFile.originalname.replace(/[^A-Za-z0-9_\-\.]/g, "_");
+        const jpgNome = jpgFile
+            ? jpgFile.originalname.replace(/[^A-Za-z0-9_\-\.]/g, "_")
+            : pdfNome.replace(/\.pdf$/i, ".jpg");
 
-        // Faz upload pro Blob
-        const blob = await bucket.put(key, req.file.buffer);
-        const pdfUrl = blob.url;
+        const pdfKey = `notas/${pdfNome}`;
+        const jpgKey = `notas/${jpgNome}`;
+
+        // Upload PDF
+        const pdfBlob = await bucket.put(pdfKey, pdfFile.buffer);
+        const pdfUrl = pdfBlob.url;
+        console.log("✅ PDF no Blob:", pdfUrl);
+
+        // Upload JPG (se tiver)
+        let jpgUrl = pdfUrl; // fallback
+        if (jpgFile) {
+            const jpgBlob = await bucket.put(jpgKey, jpgFile.buffer);
+            jpgUrl = jpgBlob.url;
+            console.log("✅ JPG no Blob:", jpgUrl);
+        } else {
+            console.log("⚠️  Usando PDF como jpg_url (preview não vai funcionar)");
+        }
 
         // Gera token curto
         const token = Math.random().toString(36).substring(2, 8);
@@ -95,8 +130,8 @@ app.post("/upload-pdf", upload.single("pdf"), async (req, res) => {
         const nota = {
             os, cliente, telefone, veiculo, placa, mecanico, data, total,
             status: "Concluída",
-            jpg_url: pdfUrl,
-            pdf_url: pdfUrl,
+            jpg_url: jpgUrl,      // ← IMAGEM pro preview
+            pdf_url: pdfUrl,      // ← PDF pro download
             whatsapp: "5544997022672",
             criado_em: new Date().toISOString()
         };
@@ -105,14 +140,17 @@ app.post("/upload-pdf", upload.single("pdf"), async (req, res) => {
 
         const link = `https://${req.get("host")}/nota/${os}-${token}`;
 
+        console.log("🔗 Link gerado:", link);
+
         res.json({
             sucesso: true,
             link,
+            jpg_url: jpgUrl,
             pdf_url: pdfUrl
         });
 
     } catch (err) {
-        console.error("Erro no upload:", err);
+        console.error("❌ Erro no upload:", err);
         res.status(500).json({ erro: "Erro no upload: " + err.message });
     }
 });
@@ -159,6 +197,8 @@ app.get("/nota/:slug", async (req, res) => {
         const pageUrl = `https://${req.get("host")}/nota/${slug}`;
         const descricao = `Cliente: ${cliente} | Veículo: ${veiculo} | Total: ${total}`;
 
+        console.log("📄 Página da nota:", os, "| jpg_url:", jpg_url);
+
         res.send(`
             <!DOCTYPE html>
             <html lang="pt-BR">
@@ -175,6 +215,11 @@ app.get("/nota/:slug", async (req, res) => {
                 <meta property="og:type" content="website">
                 <meta property="og:url" content="${pageUrl}">
                 <meta property="og:site_name" content="VisionCar">
+
+                <meta name="twitter:card" content="summary_large_image">
+                <meta name="twitter:title" content="Ordem de Serviço #${os} — VisionCar">
+                <meta name="twitter:description" content="${descricao}">
+                <meta name="twitter:image" content="${jpg_url}">
 
                 <title>OS #${os} — VisionCar</title>
 
@@ -262,11 +307,11 @@ app.get("/nota/:slug", async (req, res) => {
         `);
 
     } catch (err) {
-        console.error("Erro na nota:", err);
+        console.error("❌ Erro na nota:", err);
         res.status(500).send("Erro ao carregar nota");
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`VisionCar rodando na porta ${PORT}`);
+    console.log(`✅ VisionCar rodando na porta ${PORT}`);
 });
