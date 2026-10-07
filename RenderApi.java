@@ -16,10 +16,6 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 
-/**
- * Envia o PDF pro backend no Render, que faz o upload pro Upstash Blob
- * e devolve o LINK final.
- */
 public class RenderApi {
 
     private static final String TAG = "RenderApi";
@@ -32,6 +28,7 @@ public class RenderApi {
 
     public static void enviarPdf(
         File pdfFile,
+        File jpgFile,
         String os, String cliente, String telefone,
         String veiculo, String placa, String mecanico,
         String data, String total,
@@ -39,15 +36,15 @@ public class RenderApi {
     ) {
         try {
             OkHttpClient client = new OkHttpClient.Builder()
-                .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 .build();
 
             RequestBody pdfBody = RequestBody.create(
-                pdfFile, MediaType.parse("application/pdf"));
+                MediaType.parse("application/pdf"), pdfFile);
 
-            MultipartBody body = new MultipartBody.Builder()
+            MultipartBody.Builder builder = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("pdf", pdfFile.getName(), pdfBody)
                 .addFormDataPart("os", os)
@@ -57,8 +54,16 @@ public class RenderApi {
                 .addFormDataPart("placa", placa)
                 .addFormDataPart("mecanico", mecanico)
                 .addFormDataPart("data", data)
-                .addFormDataPart("total", total)
-                .build();
+                .addFormDataPart("total", total);
+
+            // Adiciona o JPG se existir
+            if (jpgFile != null && jpgFile.exists()) {
+                RequestBody jpgBody = RequestBody.create(
+                    MediaType.parse("image/jpeg"), jpgFile);
+                builder.addFormDataPart("jpg", jpgFile.getName(), jpgBody);
+            }
+
+            RequestBody body = builder.build();
 
             Request request = new Request.Builder()
                 .url(RENDER_URL + "/upload-pdf")
@@ -78,6 +83,17 @@ public class RenderApi {
                         String bodyStr = response.body() != null
                             ? response.body().string() : "";
 
+                        Log.e("RESPOSTA_SERVIDOR",
+                            "HTTP " + response.code() + "\n" + bodyStr);
+
+                        String trimmed = bodyStr.trim();
+                        if (!trimmed.startsWith("{")) {
+                            callback.onError(
+                                "Servidor retornou HTML (HTTP " + response.code() + "): " +
+                                trimmed.substring(0, Math.min(200, trimmed.length())));
+                            return;
+                        }
+
                         if (response.isSuccessful()) {
                             JSONObject resp = new JSONObject(bodyStr);
                             String link = resp.optString("link", "");
@@ -88,9 +104,16 @@ public class RenderApi {
                                 callback.onError("Resposta sem link");
                             }
                         } else {
-                            callback.onError("HTTP " + response.code() + ": " + bodyStr);
+                            try {
+                                JSONObject resp = new JSONObject(bodyStr);
+                                String erro = resp.optString("erro", "Erro desconhecido");
+                                callback.onError("HTTP " + response.code() + ": " + erro);
+                            } catch (Exception e) {
+                                callback.onError("HTTP " + response.code() + ": " + trimmed);
+                            }
                         }
                     } catch (Exception e) {
+                        Log.e(TAG, "Erro parsing: " + e.getMessage(), e);
                         callback.onError("Erro: " + e.getMessage());
                     } finally {
                         response.close();
@@ -99,7 +122,7 @@ public class RenderApi {
             });
 
         } catch (Exception e) {
-            Log.e(TAG, "Erro: " + e.getMessage());
+            Log.e(TAG, "Erro: " + e.getMessage(), e);
             callback.onError(e.getMessage());
         }
     }
